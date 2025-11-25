@@ -17,6 +17,12 @@ import { signInAnonymously, onAuthStateChanged } from "firebase/auth";
 // Register highlight.js language
 hljs.registerLanguage("css", css);
 
+// Define the new structured data type for the conversion result
+type ConversionItem = {
+    selector: string;
+    tailwind: string;
+}
+
 // SERVER SIDE ACTION 
 export async function action({ request }: Route.ActionArgs) {
   const formData = await request.formData();
@@ -30,13 +36,22 @@ export async function action({ request }: Route.ActionArgs) {
   if (!API_KEY) return { error: "Server API Key missing" };
   
   const SYSTEM_PROMPT = `You are an expert CSS to Tailwind CSS converter. 
-  Task: Return a JSON object with:
-  1. "output": A string containing the Tailwind classes.
-  2. "analysis": A 1 or 2-sentence explanation.
-  Rules:
-  - Output JSON only. No markdown.
-  - If multiple classes are input, format the "output" string like CSS using the @apply directive.
-  - Example output string: ".box { @apply bg-red-500; } .text { @apply font-bold; }"`;
+  
+  Task: Analyze the CSS provided by the user and convert it into a structured JSON response.
+  
+  CRITICAL RULES FOR TAILWIND CONVERSION:
+  1. Flatten all CSS. Do not use @media blocks in the output. Use Tailwind prefixes instead (e.g., 'md:', 'lg:', 'dark:').
+  2. Merge pseudo-classes into the main class string (e.g., 'hover:bg-red-500').
+  3. Output a list of conversions mapping the original CSS selector to the resulting Tailwind class string.
+
+  Return ONLY valid JSON with this exact structure:
+  {
+    "conversions": [
+      { "selector": ".box", "tailwind": "bg-red-500 p-4 md:p-8" },
+      { "selector": ".nav-link:hover", "tailwind": "hover:text-blue-500" }
+    ],
+    "analysis": "A concise 1-2 sentence summary of the conversion and key patterns found."
+  }`;
   
   try {
     const response = await fetch(
@@ -55,37 +70,29 @@ export async function action({ request }: Route.ActionArgs) {
     const data = await response.json();
     if (!response.ok) throw new Error(data.error?.message || "API Error");
     
-    // Clean Gemini response
+    // Clean and Parse the JSON response
     let text = data.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
     text = text.replace(/```json/g, "").replace(/```/g, "").trim();
     
-    let parsedData = JSON.parse(text);
-
-    // Handle Object Output by converting it to string
-    if (parsedData.output && typeof parsedData.output === 'object') {
-      parsedData.output = Object.entries(parsedData.output)
-        .map(([selector, classes]) => `${selector} {\n  @apply ${classes};\n}`)
-        .join('\n\n');
-    }
-
-    return parsedData;
+    return JSON.parse(text); 
 
   } catch (error: any) {
     return { error: error.message };
   }
 }
 
-// CLIENT SIDE COMPONENT 
+// CLIENT SIDE COMPONENT
 export default function Home() {
   const fetcher = useFetcher();
   const [cssInput, setCssInput] = useState("");
-  const [output, setOutput] = useState("/* Result will appear here */");
+
+  const [conversions, setConversions] = useState<ConversionItem[]>([]); 
   const [analysis, setAnalysis] = useState("");
   const [history, setHistory] = useState<any[]>([]);
   const [status, setStatus] = useState("Connecting securely...");
   const [userId, setUserId] = useState<string | null>(null);
-  const [historyOpen, setHistoryOpen] = useState(false); 
-  const codeBlockRef = useRef<HTMLElement>(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const codeBlockRef = useRef<HTMLElement>(null); 
   
   // 1. Auth & History Listener
   useEffect(() => {
@@ -126,62 +133,61 @@ export default function Home() {
       
       if (data.error) {
         setAnalysis(`Error: ${data.error}`);
-      } else if (data.output) {
+        setConversions([]); // Clear conversions on error
+      } else if (data.conversions) {
         setAnalysis(data.analysis);
-        
-        //  NEW FORMATTING LOGIC FOR DISPLAY 
-        // Converts ".selector { @apply classes; }" into "selector: classes\n"
-        const formattedOutput = data.output.replace(/(\.[\w-]+)\s?\{\s?@apply\s/g, '\n$1: ')
-                                          .replace(/;\s?\}/g, '\n');
-        setOutput(formattedOutput.trim());
+        setConversions(data.conversions); 
         
         // Save to Firestore if logged in
         if (userId) {
           addDoc(collection(db, `users/${userId}/conversions`), {
             css: cssInput,
-            tailwind: data.output, // Save the original string output
+            tailwindData: JSON.stringify(data.conversions), 
             analysis: data.analysis,
             timestamp: Date.now(),
           }).catch(e => console.error("Save failed", e));
         }
       }
     }
-  }, [fetcher.data]);
+  }, [fetcher.data, userId, cssInput]);
   
-  // 3. Highlight code on output change
+  // 3. Highlight code on output change (Keep the old ref, but it's less critical now)
   useEffect(() => {
     if (codeBlockRef.current) {
       delete codeBlockRef.current.dataset.highlighted; // Reset
       hljs.highlightElement(codeBlockRef.current);
     }
-  }, [output]);
+  }, [cssInput]); // Only highlighting the input now
   
-  const copyToClipboard = () => {
-    // Copy the display text, not the saved raw output
-    navigator.clipboard.writeText(output).then(() => {
+  const copyAllClassesToClipboard = () => {
+    const allClasses = conversions.map(c => c.tailwind).join(' ');
+    navigator.clipboard.writeText(allClasses).then(() => {
       const oldAnalysis = analysis;
-      setAnalysis("Copied to clipboard!");
-      setTimeout(() => setAnalysis(oldAnalysis), 2000);
+      setAnalysis("All Tailwind classes copied to clipboard!");
+      setTimeout(() => setAnalysis(oldAnalysis), 3000);
     });
   };
   
   const loadFromHistory = (item: any) => {
     setCssInput(item.css);
-    // Format the stored raw output before displaying
-    const formattedOutput = item.tailwind.replace(/(\.[\w-]+)\s?\{\s?@apply\s/g, '\n$1: ')
-    .replace(/;\s?\}/g, '\n');
-    setOutput(formattedOutput.trim());
-    setAnalysis(item.analysis);
-    setHistoryOpen(false); // Close drawer after loading on mobile/desktop
+    try {
+        const parsed = JSON.parse(item.tailwindData);
+        setConversions(parsed);
+        setAnalysis(item.analysis);
+    } catch (e) {
+        setConversions([{ selector: "Legacy CSS Block", tailwind: item.tailwind || "Error loading legacy data" }]);
+        setAnalysis(item.analysis + " (Note: Loaded from legacy format.)");
+    }
+    setHistoryOpen(false); 
   };
   
   const isLoading = fetcher.state === "submitting";
   
   return (
-    // MAIN CONTAINER
+    // MAIN CONTAINER: Handles desktop sidebar and full screen height
     <div className="h-screen flex flex-col lg:flex-row overflow-hidden font-sans text-white bg-slate-900">
       
-      {/* Sidebar History Drawer */}
+      {/* Sidebar History Drawer: Fixed position for drawer effect */}
       <aside 
         className={`fixed inset-y-0 left-0 z-50 w-72 bg-slate-900 border-r border-slate-800 flex flex-col transition-transform duration-300 ease-in-out ${
             historyOpen ? 'translate-x-0' : '-translate-x-full'
@@ -225,7 +231,7 @@ export default function Home() {
       <main className="flex-1 flex flex-col p-4 lg:p-6 lg:ml-72 gap-4 h-full relative">
         <header className="flex justify-between items-center">
           
-          {/* Toggle History */}
+          {/* Toggle History Button (Visible on mobile, hidden on desktop) */}
           <button
               onClick={() => setHistoryOpen(!historyOpen)}
               className="text-white hover:text-blue-400 transition lg:hidden" 
@@ -253,11 +259,12 @@ export default function Home() {
           </fetcher.Form>
         </header>
 
-        {/* INPUT/OUTPUT CONTAINER */}
+        {/* INPUT/OUTPUT CONTAINER: Mobile=Stacked (col), Desktop=Side-by-side (row) */}
         <div className="flex-1 flex flex-col lg:flex-row gap-4 min-h-0">
           {/* Input */}
           <div className="flex-1 flex flex-col">
             <label className="text-xs text-slate-400 mb-2">CSS Input</label>
+            {/* The input still uses the ref for syntax highlighting */}
             <textarea
               value={cssInput}
               onChange={(e) => setCssInput(e.target.value)}
@@ -266,15 +273,23 @@ export default function Home() {
             />
           </div>
 
-          {/* Output */}
+          {/* New Structured Output Section */}
           <div className="flex-1 flex flex-col min-h-0">
             <label className="text-xs text-slate-400 mb-2 flex justify-between">
-              <span>Tailwind Output</span>
+              <span>Tailwind Output (Structured)</span>
+              {conversions.length > 0 && (
+                <button
+                  onClick={copyAllClassesToClipboard}
+                  className="bg-slate-700 hover:bg-slate-600 text-xs px-3 py-1 rounded transition"
+                >
+                  Copy All Classes
+                </button>
+              )}
             </label>
             
             {/* DEDICATED ANALYSIS/ERROR BOX */}
             {analysis && (
-                <div className={`text-xs p-2 mb-2 rounded-lg code-font whitespace-pre-wrap ${
+                <div className={`text-xs p-3 mb-3 rounded-lg code-font whitespace-pre-wrap ${
                     analysis.startsWith("Error:") 
                         ? 'bg-red-900/50 text-red-300 border border-red-700'
                         : 'bg-purple-900/50 text-purple-300 border border-purple-700'
@@ -283,21 +298,37 @@ export default function Home() {
                 </div>
             )}
             
-            <div className="flex-1 bg-slate-800 rounded-lg border border-slate-700 relative overflow-hidden group">
-              <pre className="h-full p-4 overflow-auto whitespace-pre-wrap">
-                <code 
-                  ref={codeBlockRef} 
-                  className="language-css text-sm bg-transparent"
-                >
-                  {output}
-                </code>
-              </pre>
-              <button
-                onClick={copyToClipboard}
-                className="absolute top-2 right-2 bg-slate-700 hover:bg-slate-600 text-xs px-3 py-1 rounded opacity-0 group-hover:opacity-100 transition"
-              >
-                Copy
-              </button>
+            <div className="flex-1 bg-slate-800 rounded-lg border border-slate-700 relative overflow-y-auto p-3 space-y-3">
+              {conversions.length === 0 ? (
+                <div className="text-slate-500 text-center mt-10 text-sm">
+                  The clean, structured Tailwind results will appear here after conversion.
+                </div>
+              ) : (
+                // ITERATE OVER THE CLEAN ARRAY
+                conversions.map((item, idx) => (
+                  <div 
+                    key={idx} 
+                    className="bg-slate-900/50 p-3 rounded border border-slate-700/50 flex flex-col gap-2 group hover:shadow-lg transition"
+                  >
+                    
+                    {/* Top Row: Selector & Copy Button */}
+                    <div className="flex justify-between items-center border-b border-slate-800 pb-2 mb-1">
+                      <span className="text-orange-300 font-mono text-sm font-bold truncate">{item.selector}</span>
+                      <button 
+                        onClick={() => navigator.clipboard.writeText(item.tailwind)}
+                        className="text-xs text-slate-400 hover:text-white bg-slate-700 px-3 py-1 rounded transition"
+                      >
+                        Copy Classes
+                      </button>
+                    </div>
+
+                    {/* Bottom Row: Resulting Classes */}
+                    <code className="text-green-300 text-sm font-mono break-words leading-relaxed">
+                      {item.tailwind}
+                    </code>
+                  </div>
+                ))
+              )}
             </div>
           </div>
         </div>
