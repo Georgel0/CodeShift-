@@ -24,14 +24,12 @@ export async function action({ request }: Route.ActionArgs) {
   
   const SYSTEM_PROMPT = `You are an expert CSS to Tailwind CSS converter. 
   Task: Return a JSON object with:
-  1. "output": The Tailwind classes.
-  2. "analysis": A 1 or 2-sentence explanation (based on the request) in which you explain the why and how of each conversion.
+  1. "output": A string containing the Tailwind classes.
+  2. "analysis": A 1 or 2-sentence explanation.
   Rules:
   - Output JSON only. No markdown.
-  - Handle media queries and pseudo-classes using Tailwind prefixes.
-  - Handle complex css code like calc(), okhsl(), var(), basically anything.
-  - Assign each property for its corresponding class selector.
-  - Double check before sending back the response for any bugs.`;
+  - If multiple classes are input, format the "output" string like CSS using the @apply directive.
+  - Example output string: ".box { @apply bg-red-500; } .text { @apply font-bold; }"`;
   
   try {
     const response = await fetch(
@@ -54,11 +52,23 @@ export async function action({ request }: Route.ActionArgs) {
     let text = data.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
     text = text.replace(/```json/g, "").replace(/```/g, "").trim();
     
-    return JSON.parse(text);
+    let parsedData = JSON.parse(text);
+
+    // Handle Object Output
+    // If Gemini returns an object map (e.g. { ".class": "styles" }), convert it to a string
+    if (parsedData.output && typeof parsedData.output === 'object') {
+      parsedData.output = Object.entries(parsedData.output)
+        .map(([selector, classes]) => `${selector} {\n  @apply ${classes};\n}`)
+        .join('\n\n');
+    }
+
+    return parsedData;
+
   } catch (error: any) {
     return { error: error.message };
   }
 }
+
 
 // CLIENT SIDE COMPONENT
 export default function Home() {
