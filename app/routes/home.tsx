@@ -3,8 +3,15 @@ import { Form, useFetcher } from "react-router";
 import type { Route } from "./+types/home";
 import hljs from "highlight.js/lib/core";
 import css from "highlight.js/lib/languages/css";
-import { db, auth } from "../firebase";
-import { collection, query, orderBy, limit, onSnapshot, addDoc } from "firebase/firestore";
+import { db, auth } from "../firebase"; 
+import {
+  collection,
+  query,
+  orderBy,
+  limit,
+  onSnapshot,
+  addDoc
+} from "firebase/firestore";
 import { signInAnonymously, onAuthStateChanged } from "firebase/auth";
 
 // Register highlight.js language
@@ -54,8 +61,7 @@ export async function action({ request }: Route.ActionArgs) {
     
     let parsedData = JSON.parse(text);
 
-    // Handle Object Output
-    // If Gemini returns an object map (e.g. { ".class": "styles" }), convert it to a string
+    // Handle Object Output by converting it to string
     if (parsedData.output && typeof parsedData.output === 'object') {
       parsedData.output = Object.entries(parsedData.output)
         .map(([selector, classes]) => `${selector} {\n  @apply ${classes};\n}`)
@@ -69,16 +75,16 @@ export async function action({ request }: Route.ActionArgs) {
   }
 }
 
-
-// CLIENT SIDE COMPONENT
+// CLIENT SIDE COMPONENT 
 export default function Home() {
   const fetcher = useFetcher();
   const [cssInput, setCssInput] = useState("");
-  const [output, setOutput] = useState("Result will appear here");
+  const [output, setOutput] = useState("/* Result will appear here */");
   const [analysis, setAnalysis] = useState("");
   const [history, setHistory] = useState<any[]>([]);
   const [status, setStatus] = useState("Connecting securely...");
   const [userId, setUserId] = useState<string | null>(null);
+  const [historyOpen, setHistoryOpen] = useState(false); 
   const codeBlockRef = useRef<HTMLElement>(null);
   
   // 1. Auth & History Listener
@@ -89,7 +95,7 @@ export default function Home() {
     const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
       if (user) {
         setUserId(user.uid);
-        setStatus(""); // Connected
+        setStatus("Connected."); // Connected
         
         // Listen to Firestore
         const q = query(
@@ -103,7 +109,7 @@ export default function Home() {
           setHistory(historyData);
           if (snap.empty) setStatus("No conversion history yet.");
         }, (err) => {
-          setStatus(`History Error: ${err.message}`);
+          setStatus(`History Error: ${err.message}. Please check Firestore rules.`);
         });
         
         return () => unsubscribeSnapshot();
@@ -113,7 +119,7 @@ export default function Home() {
     return () => unsubscribeAuth();
   }, []);
   
-  // 2. Handle Action Response (Save to DB)
+  // 2. Handle Action Response (Format Output and Save to DB)
   useEffect(() => {
     if (fetcher.data) {
       const data = fetcher.data as any;
@@ -121,14 +127,19 @@ export default function Home() {
       if (data.error) {
         setAnalysis(`Error: ${data.error}`);
       } else if (data.output) {
-        setOutput(data.output);
         setAnalysis(data.analysis);
+        
+        //  NEW FORMATTING LOGIC FOR DISPLAY 
+        // Converts ".selector { @apply classes; }" into "selector: classes\n"
+        const formattedOutput = data.output.replace(/(\.[\w-]+)\s?\{\s?@apply\s/g, '\n$1: ')
+                                          .replace(/;\s?\}/g, '\n');
+        setOutput(formattedOutput.trim());
         
         // Save to Firestore if logged in
         if (userId) {
           addDoc(collection(db, `users/${userId}/conversions`), {
             css: cssInput,
-            tailwind: data.output,
+            tailwind: data.output, // Save the original string output
             analysis: data.analysis,
             timestamp: Date.now(),
           }).catch(e => console.error("Save failed", e));
@@ -146,6 +157,7 @@ export default function Home() {
   }, [output]);
   
   const copyToClipboard = () => {
+    // Copy the display text, not the saved raw output
     navigator.clipboard.writeText(output).then(() => {
       const oldAnalysis = analysis;
       setAnalysis("Copied to clipboard!");
@@ -155,8 +167,12 @@ export default function Home() {
   
   const loadFromHistory = (item: any) => {
     setCssInput(item.css);
-    setOutput(item.tailwind);
+    // Format the stored raw output before displaying
+    const formattedOutput = item.tailwind.replace(/(\.[\w-]+)\s?\{\s?@apply\s/g, '\n$1: ')
+    .replace(/;\s?\}/g, '\n');
+    setOutput(formattedOutput.trim());
     setAnalysis(item.analysis);
+    setHistoryOpen(false); // Close drawer after loading on mobile/desktop
   };
   
   const isLoading = fetcher.state === "submitting";
@@ -165,11 +181,24 @@ export default function Home() {
     // MAIN CONTAINER
     <div className="h-screen flex flex-col lg:flex-row overflow-hidden font-sans text-white bg-slate-900">
       
-      {/* Sidebar History */}
-      <aside className="w-full lg:w-72 bg-slate-900 border-r border-slate-800 flex flex-col h-[30vh] lg:h-auto order-last lg:order-first">
-        <div className="p-4 border-b border-slate-800 font-bold flex items-center gap-2">
-          <i className="fas fa-history text-blue-500"></i> Conversion History
+      {/* Sidebar History Drawer */}
+      <aside 
+        className={`fixed inset-y-0 left-0 z-50 w-72 bg-slate-900 border-r border-slate-800 flex flex-col transition-transform duration-300 ease-in-out ${
+            historyOpen ? 'translate-x-0' : '-translate-x-full'
+        } lg:relative lg:translate-x-0 lg:w-72`} // Desktop always open
+      >
+        <div className="p-4 border-b border-slate-800 font-bold flex items-center justify-between gap-2">
+          <span className="flex items-center gap-2"><i className="fas fa-history text-blue-500"></i> Conversion History</span>
+          
+          {/* Close button for mobile */}
+          <button
+              onClick={() => setHistoryOpen(false)}
+              className="text-white hover:text-red-400 lg:hidden text-2xl font-light"
+          >
+              &times;
+          </button>
         </div>
+        
         <div className="overflow-y-auto flex-1 p-2 space-y-2">
           {status && <p className="text-xs text-slate-500 text-center mt-4">{status}</p>}
           {history.map((item, index) => (
@@ -184,9 +213,26 @@ export default function Home() {
         </div>
       </aside>
 
+      {/* Backdrop for mobile when drawer is open */}
+      {historyOpen && (
+          <div 
+              className="fixed inset-0 bg-black/50 z-40 lg:hidden"
+              onClick={() => setHistoryOpen(false)}
+          ></div>
+      )}
+
       {/* Main Content */}
-      <main className="flex-1 flex flex-col p-4 lg:p-6 gap-4 h-[70vh] lg:h-auto relative order-first lg:order-last">
+      <main className="flex-1 flex flex-col p-4 lg:p-6 lg:ml-72 gap-4 h-full relative">
         <header className="flex justify-between items-center">
+          
+          {/* Toggle History */}
+          <button
+              onClick={() => setHistoryOpen(!historyOpen)}
+              className="text-white hover:text-blue-400 transition lg:hidden" 
+          >
+              <i className="fas fa-bars text-xl"></i>
+          </button>
+          
           <h1 className="text-xl font-bold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
             CSS to Tailwind AI Converter
           </h1>
@@ -207,7 +253,7 @@ export default function Home() {
           </fetcher.Form>
         </header>
 
-        {/* INPUT/OUTPUT CONTAINER*/}
+        {/* INPUT/OUTPUT CONTAINER */}
         <div className="flex-1 flex flex-col lg:flex-row gap-4 min-h-0">
           {/* Input */}
           <div className="flex-1 flex flex-col">
@@ -238,7 +284,7 @@ export default function Home() {
             )}
             
             <div className="flex-1 bg-slate-800 rounded-lg border border-slate-700 relative overflow-hidden group">
-              <pre className="h-full p-4 overflow-auto">
+              <pre className="h-full p-4 overflow-auto whitespace-pre-wrap">
                 <code 
                   ref={codeBlockRef} 
                   className="language-css text-sm bg-transparent"
