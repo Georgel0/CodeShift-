@@ -4,14 +4,7 @@ import type { Route } from "./+types/home";
 import hljs from "highlight.js/lib/core";
 import css from "highlight.js/lib/languages/css";
 import { db, auth } from "../firebase";
-import {
-  collection,
-  query,
-  orderBy,
-  limit,
-  onSnapshot,
-  addDoc
-} from "firebase/firestore";
+import { collection, query, orderBy, limit, onSnapshot, addDoc } from "firebase/firestore";
 import { signInAnonymously, onAuthStateChanged } from "firebase/auth";
 
 // Register highlight.js language
@@ -71,7 +64,7 @@ export async function action({ request }: Route.ActionArgs) {
 export default function Home() {
   const fetcher = useFetcher();
   const [cssInput, setCssInput] = useState("");
-  const [output, setOutput] = useState("/* Result will appear here */");
+  const [output, setOutput] = useState("Result will appear here");
   const [analysis, setAnalysis] = useState("");
   const [history, setHistory] = useState<any[]>([]);
   const [status, setStatus] = useState("Connecting securely...");
