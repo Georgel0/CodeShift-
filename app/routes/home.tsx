@@ -17,7 +17,7 @@ import { signInAnonymously, onAuthStateChanged } from "firebase/auth";
 // Register highlight.js language
 hljs.registerLanguage("css", css);
 
-// --- SERVER SIDE ACTION (GEMINI) ---
+// SERVER SIDE ACTION 
 export async function action({ request }: Route.ActionArgs) {
   const formData = await request.formData();
   const cssCode = formData.get("cssCode");
@@ -32,12 +32,12 @@ export async function action({ request }: Route.ActionArgs) {
   const SYSTEM_PROMPT = `You are an expert CSS to Tailwind CSS converter. 
   Task: Return a JSON object with:
   1. "output": The Tailwind classes.
-  2. "analysis": A 1 or 2-sentence explanation (based on the request) innwhich you explain the why ond how of each conversion.
+  2. "analysis": A 1 or 2-sentence explanation (based on the request) in which you explain the why and how of each conversion.
   Rules:
   - Output JSON only. No markdown.
   - Handle media queries and pseudo-classes using Tailwind prefixes.
   - Handle complex css code like calc(), okhsl(), var(), basically anything.
-  - Assign each property for its coresponding class selector.
+  - Assign each property for its corresponding class selector.
   - Double check before sending back the response for any bugs.`;
   
   try {
@@ -67,16 +67,16 @@ export async function action({ request }: Route.ActionArgs) {
   }
 }
 
-// --- CLIENT SIDE COMPONENT ---
+// CLIENT SIDE COMPONENT
 export default function Home() {
   const fetcher = useFetcher();
   const [cssInput, setCssInput] = useState("");
   const [output, setOutput] = useState("/* Result will appear here */");
   const [analysis, setAnalysis] = useState("");
-  const [history, setHistory] = useState < any[] > ([]);
+  const [history, setHistory] = useState<any[]>([]);
   const [status, setStatus] = useState("Connecting securely...");
-  const [userId, setUserId] = useState < string | null > (null);
-  const codeBlockRef = useRef < HTMLElement > (null);
+  const [userId, setUserId] = useState<string | null>(null);
+  const codeBlockRef = useRef<HTMLElement>(null);
   
   // 1. Auth & History Listener
   useEffect(() => {
@@ -159,10 +159,11 @@ export default function Home() {
   const isLoading = fetcher.state === "submitting";
   
   return (
+    // MAIN CONTAINER: Mobile=Stacked
     <div className="h-screen flex flex-col lg:flex-row overflow-hidden font-sans text-white bg-slate-900">
       
       {/* Sidebar History */}
-      <aside className="w-full lg:w-72 bg-slate-900 border-r border-slate-800 flex flex-col h-[30vh] lg:h-auto">
+      <aside className="w-full lg:w-72 bg-slate-900 border-r border-slate-800 flex flex-col h-[30vh] lg:h-auto order-last lg:order-first">
         <div className="p-4 border-b border-slate-800 font-bold flex items-center gap-2">
           <i className="fas fa-history text-blue-500"></i> Conversion History
         </div>
@@ -181,7 +182,7 @@ export default function Home() {
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 flex flex-col p-4 lg:p-6 gap-4 h-[70vh] lg:h-auto relative">
+      <main className="flex-1 flex flex-col p-4 lg:p-6 gap-4 h-[70vh] lg:h-auto relative order-first lg:order-last">
         <header className="flex justify-between items-center">
           <h1 className="text-xl font-bold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
             CSS to Tailwind AI Converter
@@ -203,6 +204,7 @@ export default function Home() {
           </fetcher.Form>
         </header>
 
+        {/* INPUT/OUTPUT CONTAINER*/}
         <div className="flex-1 flex flex-col lg:flex-row gap-4 min-h-0">
           {/* Input */}
           <div className="flex-1 flex flex-col">
@@ -219,8 +221,19 @@ export default function Home() {
           <div className="flex-1 flex flex-col min-h-0">
             <label className="text-xs text-slate-400 mb-2 flex justify-between">
               <span>Tailwind Output</span>
-              <span className="text-purple-400 italic truncate ml-4">{analysis}</span>
             </label>
+            
+            {/* DEDICATED ANALYSIS/ERROR BOX */}
+            {analysis && (
+                <div className={`text-xs p-2 mb-2 rounded-lg code-font whitespace-pre-wrap ${
+                    analysis.startsWith("Error:") 
+                        ? 'bg-red-900/50 text-red-300 border border-red-700'
+                        : 'bg-purple-900/50 text-purple-300 border border-purple-700'
+                }`}>
+                    {analysis}
+                </div>
+            )}
+            
             <div className="flex-1 bg-slate-800 rounded-lg border border-slate-700 relative overflow-hidden group">
               <pre className="h-full p-4 overflow-auto">
                 <code 
