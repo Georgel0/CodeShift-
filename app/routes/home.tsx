@@ -159,7 +159,7 @@ export default function Home() {
   const isLoading = fetcher.state === "submitting";
   
   return (
-    // MAIN CONTAINER: Mobile=Stacked
+    // MAIN CONTAINER
     <div className="h-screen flex flex-col lg:flex-row overflow-hidden font-sans text-white bg-slate-900">
       
       {/* Sidebar History */}
