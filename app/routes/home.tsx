@@ -177,8 +177,8 @@ export default function Home() {
           historyRef.current = historyData;
           
           // Run cleanup check whenever history loads/updates
-          // We wrap in timeout to ensure state 'keepForever' is accessible or pass it
-          // Ideally we check this only once per session, but this ensures consistency
+          // Wraped in timeout to ensure state 'keepForever' is accessible or pass it
+          // Ideally this is checkd only once per session, but this ensures consistency
         }, (err) => {
           setStatus(`History Error: ${err.message}`);
         });
