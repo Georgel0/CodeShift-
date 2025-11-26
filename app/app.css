@@ -2,7 +2,6 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Custom Styles mimicking your original HTML */
 body {
   background: #0f172a;
   color: white;
