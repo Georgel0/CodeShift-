@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from "react";
-import { Form, useFetcher } from "react-router";
-import type { Route } from "./+types/home";
+import { useFetcher } from "react-router";
+import type { Route } from "./+types/main"; // Note: Type reflects filename
 import hljs from "highlight.js/lib/core";
 import css from "highlight.js/lib/languages/css";
 import { db, auth } from "../firebase";
@@ -19,16 +19,13 @@ import {
   getDoc
 } from "firebase/firestore";
 import { signInAnonymously, onAuthStateChanged } from "firebase/auth";
+import { runConversionTask, ConversionResult } from "../services/conversionService";
+import { CSS_TO_TAILWIND_CONFIG } from "../configs/cssConfig";
 
 // Register highlight.js language
 hljs.registerLanguage("css", css);
 
-// TYPES 
-type ConversionItem = {
-  selector: string;
-  tailwind: string;
-}
-
+// TYPES
 type HistoryItem = {
   id: string;
   css: string;
@@ -37,66 +34,31 @@ type HistoryItem = {
   timestamp: number;
 }
 
-// SERVER SIDE ACTION 
+// SERVER SIDE ACTION
 export async function action({ request }: Route.ActionArgs) {
   const formData = await request.formData();
   const cssCode = formData.get("cssCode");
   
   if (!cssCode || typeof cssCode !== "string") {
-    return { error: "No CSS provided" };
+    return { error: "No input provided" };
   }
   
-  const API_KEY = process.env.GEMINI_API_KEY;
-  if (!API_KEY) return { error: "Server API Key missing" };
-  
-  const SYSTEM_PROMPT = `You are an expert CSS to Tailwind CSS converter. 
-  Task: Analyze the CSS provided by the user and convert it into a structured JSON response.
-  CRITICAL RULES:
-  1. Flatten all CSS. No @media blocks (use prefixes like 'md:').
-  2. Merge pseudo-classes (e.g., 'hover:bg-red-500').
-  3. Return ONLY valid JSON.
-  
-  Structure:
-  {
-    "conversions": [
-      { "selector": ".box", "tailwind": "bg-red-500 p-4" }
-    ],
-    "analysis": "Summary string."
-  }`;
-  
   try {
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${API_KEY}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: cssCode }] }],
-          systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
-          generationConfig: { responseMimeType: "application/json" },
-        }),
-      }
-    );
-    
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.error?.message || "API Error");
-    
-    let text = data.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
-    text = text.replace(/```json/g, "").replace(/```/g, "").trim();
-    
-    return JSON.parse(text);
+    // Modular call using the Service + Config
+    const result = await runConversionTask(cssCode, CSS_TO_TAILWIND_CONFIG);
+    return result;
   } catch (error: any) {
     return { error: error.message };
   }
 }
 
-// CLIENT SIDE COMPONENT 
-export default function Home() {
+// CLIENT SIDE COMPONENT
+export default function Main() {
   const fetcher = useFetcher();
   
   // App State
   const [cssInput, setCssInput] = useState("");
-  const [conversions, setConversions] = useState < ConversionItem[] > ([]);
+  const [conversions, setConversions] = useState < ConversionResult["conversions"] > ([]);
   const [analysis, setAnalysis] = useState("");
   const [status, setStatus] = useState("Connecting...");
   const [userId, setUserId] = useState < string | null > (null);
@@ -106,11 +68,10 @@ export default function Home() {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [showInfoPopup, setShowInfoPopup] = useState(false);
   
-  // User Preferences
+  // User Preferences (Monetization removed: Feature available to all)
   const [keepForever, setKeepForever] = useState(false);
   
   const codeBlockRef = useRef < HTMLElement > (null);
-  const historyRef = useRef < HistoryItem[] > ([]); // Ref to access history inside timeouts/effects without deps
   
   // HELPERS
   const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
@@ -138,7 +99,7 @@ export default function Home() {
     }
   };
   
-  // 2. Logic: Load User Settings
+  // 2. Logic: Load User Settings Only
   useEffect(() => {
     if (!userId) return;
     
@@ -154,7 +115,14 @@ export default function Home() {
   
   // 3. Auth & Real-time History Listener
   useEffect(() => {
-    signInAnonymously(auth).catch((e) => console.error("Auth failed", e));
+    setStatus("Attempting anonymous sign-in...");
+    
+    signInAnonymously(auth)
+      .then(() => setStatus("Signed in. Fetching data..."))
+      .catch((e) => {
+        console.error("Auth failed", e);
+        setStatus(`Auth Error: ${e.code} - ${e.message}`);
+      });
     
     const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
       if (user) {
@@ -164,7 +132,7 @@ export default function Home() {
         const q = query(
           collection(db, `users/${user.uid}/conversions`),
           orderBy("timestamp", "desc"),
-          limit(50) // Increased limit slightly
+          limit(50)
         );
         
         const unsubscribeSnapshot = onSnapshot(q, (snap) => {
@@ -174,13 +142,9 @@ export default function Home() {
           })) as HistoryItem[];
           
           setHistory(historyData);
-          historyRef.current = historyData;
           
-          // Run cleanup check whenever history loads/updates
-          // Wraped in timeout to ensure state 'keepForever' is accessible or pass it
-          // Ideally this is checkd only once per session, but this ensures consistency
         }, (err) => {
-          setStatus(`History Error: ${err.message}`);
+          setStatus(`Database Error: ${err.code} - ${err.message}`);
         });
         
         return () => unsubscribeSnapshot();
@@ -190,7 +154,7 @@ export default function Home() {
     return () => unsubscribeAuth();
   }, []);
   
-  // 4. Trigger Cleanup when 'keepForever' changes to FALSE
+  // 4. Trigger Cleanup
   useEffect(() => {
     if (userId && !keepForever && history.length > 0) {
       cleanupOldHistory(userId, history, false);
@@ -245,11 +209,10 @@ export default function Home() {
     } catch (e) {
       setConversions([{ selector: "Error", tailwind: "Could not parse legacy data" }]);
     }
-    // Don't close drawer automatically, let user explore
   };
   
   const deleteHistoryItem = async (e: React.MouseEvent, itemId: string) => {
-    e.stopPropagation(); // Prevent clicking the card
+    e.stopPropagation();
     if (!userId) return;
     if (confirm("Delete this item?")) {
       await deleteDoc(doc(db, `users/${userId}/conversions`, itemId));
@@ -283,32 +246,39 @@ export default function Home() {
   return (
     <div className="h-screen flex flex-col lg:flex-row overflow-hidden font-sans text-white bg-slate-900">
       
-  {/* SIDEBAR HISTORY */}
-    <aside className={`fixed inset-y-0 left-0 z-50 w-80 bg-slate-900 border-r border-slate-800 flex flex-col transition-transform duration-300 ease-in-out ${
+{/* --- SIDEBAR HISTORY --- */}
+  <aside className={`fixed inset-y-0 left-0 z-50 w-80 bg-slate-900 border-r border-slate-800 flex flex-col transition-transform duration-300 ease-in-out ${
             historyOpen ? 'translate-x-0' : '-translate-x-full'
-        } lg:relative lg:translate-x-0 lg:w-80`} >
-      
+        } lg:relative lg:translate-x-0 lg:w-80`} 
+      >
         {/* Sidebar Header */}
-      <div className="p-4 border-b border-slate-800 bg-slate-900/95 backdrop-blur z-10">
-        <div className="flex items-center justify-between mb-4">
-          <span className="flex items-center gap-2 font-bold text-slate-200">
-            <i className="fas fa-history text-blue-500"></i> History
+        <div className="p-4 border-b border-slate-800 bg-slate-900/95 backdrop-blur z-10">
+            <div className="flex items-center justify-between mb-4">
+                <span className="flex items-center gap-2 font-bold text-slate-200">
+                    <i className="fas fa-history text-blue-500"></i> History
                 </span>
-          <button onClick={() => setHistoryOpen(false)}
-            className="text-slate-400 hover:text-white lg:hidden" >
-            <i className="fas fa-times text-xl"></i>
+                <button
+                    onClick={() => setHistoryOpen(false)}
+                    className="text-slate-400 hover:text-white lg:hidden"
+                >
+                    <i className="fas fa-times text-xl"></i>
                 </button>
             </div>
 
-{/* Controls: Keep Forever & Clear */}
-          <div className="flex flex-col gap-3 bg-slate-800/50 p-3 rounded-lg border border-slate-700/50">
+            {/* Controls: Keep Forever & Clear */}
+            <div className="flex flex-col gap-3 bg-slate-800/50 p-3 rounded-lg border border-slate-700/50">
                 
-{/* Checkbox Row */}
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2 relative">
-                <input type="checkbox" id="keepHistory" checked={keepForever} onChange={toggleKeepHistory}
-                className="w-4 h-4 rounded border-slate-600 bg-slate-700 text-blue-500 focus:ring-blue-500 cursor-pointer" />
-                <label htmlFor="keepHistory" className="text-xs text-slate-300 cursor-pointer select-none">
+                {/* Checkbox Row */}
+                <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 relative">
+                        <input 
+                            type="checkbox" 
+                            id="keepHistory"
+                            checked={keepForever}
+                            onChange={toggleKeepHistory}
+                            className="w-4 h-4 rounded border-slate-600 bg-slate-700 text-blue-500 focus:ring-blue-500 cursor-pointer"
+                        />
+                        <label htmlFor="keepHistory" className="text-xs text-slate-300 cursor-pointer select-none">
                             Keep History Forever
                         </label>
                         
@@ -321,12 +291,12 @@ export default function Home() {
                             <i className="fas fa-info-circle text-xs"></i>
                         </button>
 
-                        {/* Info Popup */}
+                        {/* Info Popup (Simplified) */}
                         {showInfoPopup && (
                             <div className="absolute top-6 left-0 w-64 bg-slate-800 text-slate-200 text-xs p-3 rounded-lg shadow-xl border border-slate-700 z-50">
                                 <p className="mb-2"><strong>Data Policy:</strong></p>
-                                <p>By default, history items older than <strong>30 days</strong> are automatically deleted to save space.</p>
-                                <p className="mt-2 text-blue-300">Check the box to disable auto-deletion.</p>
+                                <p>History older than 30 days is auto-deleted.</p>
+                                <p className="mt-2 text-blue-300">Check the box to prevent deletion.</p>
                             </div>
                         )}
                     </div>
@@ -359,7 +329,7 @@ export default function Home() {
               onClick={() => loadHistoryItem(item)}
               className="group relative bg-slate-800 hover:bg-slate-750 border border-slate-700 hover:border-blue-500/50 p-3 rounded-lg cursor-pointer transition-all shadow-sm hover:shadow-md"
             >
-                {/* Delete Individual Item Button (Shows on Hover) */}
+                {/* Delete Individual Item Button */}
                 <button 
                     onClick={(e) => deleteHistoryItem(e, item.id)}
                     className="absolute top-2 right-2 text-slate-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity p-1"
@@ -377,9 +347,6 @@ export default function Home() {
                         <span className="text-[10px] text-slate-500">
                             {new Date(item.timestamp).toLocaleDateString()}
                         </span>
-                        <span className="text-[10px] text-blue-400 bg-blue-900/20 px-1.5 py-0.5 rounded">
-                            Restored
-                        </span>
                     </div>
                 </div>
             </div>
@@ -392,7 +359,7 @@ export default function Home() {
           <div className="fixed inset-0 bg-black/50 z-40 lg:hidden" onClick={() => setHistoryOpen(false)}></div>
       )}
 
-      {/* MAIN CONTENT */}
+      {/* MAIN CONTENT*/}
       <main className="flex-1 flex flex-col p-4 lg:p-6 lg:ml-80 gap-4 h-full relative">
         <header className="flex justify-between items-center">
           <button onClick={() => setHistoryOpen(!historyOpen)} className="text-white hover:text-blue-400 transition lg:hidden">
