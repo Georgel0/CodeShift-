@@ -126,7 +126,7 @@ export default function Home() {
     return () => unsubscribeAuth();
   }, []);
   
-  // 2. Handle Action Response (Format Output and Save to DB)
+  // 2. Handle Action Response
   useEffect(() => {
     if (fetcher.data) {
       const data = fetcher.data as any;
@@ -151,7 +151,7 @@ export default function Home() {
     }
   }, [fetcher.data, userId, cssInput]);
   
-  // 3. Highlight code on output change (Keep the old ref, but it's less critical now)
+  // 3. Highlight code on output change
   useEffect(() => {
     if (codeBlockRef.current) {
       delete codeBlockRef.current.dataset.highlighted; // Reset
@@ -184,14 +184,14 @@ export default function Home() {
   const isLoading = fetcher.state === "submitting";
   
   return (
-    // MAIN CONTAINER: Handles desktop sidebar and full screen height
+    // MAIN CONTAINER
     <div className="h-screen flex flex-col lg:flex-row overflow-hidden font-sans text-white bg-slate-900">
       
-      {/* Sidebar History Drawer: Fixed position for drawer effect */}
+      {/* Sidebar History Drawer */}
       <aside 
         className={`fixed inset-y-0 left-0 z-50 w-72 bg-slate-900 border-r border-slate-800 flex flex-col transition-transform duration-300 ease-in-out ${
             historyOpen ? 'translate-x-0' : '-translate-x-full'
-        } lg:relative lg:translate-x-0 lg:w-72`} // Desktop always open
+        } lg:relative lg:translate-x-0 lg:w-72`} 
       >
         <div className="p-4 border-b border-slate-800 font-bold flex items-center justify-between gap-2">
           <span className="flex items-center gap-2"><i className="fas fa-history text-blue-500"></i> Conversion History</span>
@@ -231,7 +231,7 @@ export default function Home() {
       <main className="flex-1 flex flex-col p-4 lg:p-6 lg:ml-72 gap-4 h-full relative">
         <header className="flex justify-between items-center">
           
-          {/* Toggle History Button (Visible on mobile, hidden on desktop) */}
+          {/* Toggle History Button */}
           <button
               onClick={() => setHistoryOpen(!historyOpen)}
               className="text-white hover:text-blue-400 transition lg:hidden" 
@@ -239,8 +239,8 @@ export default function Home() {
               <i className="fas fa-bars text-xl"></i>
           </button>
           
-          <h1 className="text-xl font-bold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
-            CSS to Tailwind AI Converter
+          <h1 className="ml-[50px] text-xl font-bold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
+            CSS to Tailwind Converter
           </h1>
           
           {/* Action Form */}
@@ -259,12 +259,12 @@ export default function Home() {
           </fetcher.Form>
         </header>
 
-        {/* INPUT/OUTPUT CONTAINER: Mobile=Stacked (col), Desktop=Side-by-side (row) */}
+        {/* INPUT/OUTPUT CONTAINER */}
         <div className="flex-1 flex flex-col lg:flex-row gap-4 min-h-0">
           {/* Input */}
           <div className="flex-1 flex flex-col">
             <label className="text-xs text-slate-400 mb-2">CSS Input</label>
-            {/* The input still uses the ref for syntax highlighting */}
+
             <textarea
               value={cssInput}
               onChange={(e) => setCssInput(e.target.value)}
@@ -273,7 +273,6 @@ export default function Home() {
             />
           </div>
 
-          {/* New Structured Output Section */}
           <div className="flex-1 flex flex-col min-h-0">
             <label className="text-xs text-slate-400 mb-2 flex justify-between">
               <span>Tailwind Output (Structured)</span>
