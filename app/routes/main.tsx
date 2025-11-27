@@ -21,7 +21,6 @@ import {
 import { signInAnonymously, onAuthStateChanged } from "firebase/auth";
 import { runConversionTask, ConversionResult } from "../services/conversionService";
 import { CSS_TO_TAILWIND_CONFIG } from "../configs/cssConfig";
-import { SpeedInsights } from '@vercel/speed-insights/react';
 
 // Register highlight.js language
 hljs.registerLanguage("css", css);
@@ -440,7 +439,6 @@ export default function Main() {
           </div>
         </div>
       </main>
-      <SpeedInsights />
     </div>
   );
 }

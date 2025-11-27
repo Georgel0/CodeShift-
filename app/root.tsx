@@ -9,6 +9,7 @@ import type { LinksFunction } from "react-router";
 
 import "./app.css";
 import "highlight.js/styles/atom-one-dark.css";
+import { SpeedInsights } from '@vercel/speed-insights/react';
 
 export const links: LinksFunction = () => [
   { rel: "preconnect", href: "https://fonts.googleapis.com" },
@@ -40,6 +41,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         {children}
         <ScrollRestoration />
         <Scripts />
+        <SpeedInsights />
       </body>
     </html>
   );
