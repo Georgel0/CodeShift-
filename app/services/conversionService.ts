@@ -1,3 +1,4 @@
+// app/services/conversionService.ts
 const DEFAULT_MODEL = "gemini-2.5-flash";
 const API_KEY = process.env.GEMINI_API_KEY;
 
@@ -6,14 +7,19 @@ export interface AiTaskConfig {
  model ? : string;
 }
 
+/**
+ * Interface is generic to handle any conversion task output.
+ */
 export interface ConversionResult {
- conversions: { selector: string;tailwind: string; } [];
+ // Allows for keys like { selector: string; tailwind: string; } 
+ // or { sql: string; mongo: string; }
+ conversions: {
+  [key: string]: string; } [];
  analysis: string;
 }
 
 /**
  * Generic function to call the Gemini API with a specific prompt and input.
- * This is reusable for CSS, JS, SQL, or any other conversion task.
  */
 export async function runConversionTask(
  inputCode: string,
